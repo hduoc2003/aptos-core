@@ -45,7 +45,7 @@ use aptos_move_debugger::aptos_debugger::AptosDebugger;
 use aptos_rest_client::{
     aptos_api_types::{EntryFunctionId, HexEncodedBytes, IdentifierWrapper, MoveModuleId},
     error::RestError,
-    Client,
+    AptosBaseUrl, Client,
 };
 use aptos_types::{
     account_address::{create_resource_address, AccountAddress},
@@ -206,8 +206,8 @@ impl FrameworkPackageArgs {
         prompt_options: PromptOptions,
     ) -> CliTypedResult<()> {
         const APTOS_FRAMEWORK: &str = "AptosFramework";
-        const APTOS_GIT_PATH: &str = "https://github.com/aptos-labs/aptos-core.git";
-        const SUBDIR_PATH: &str = "aptos-move/framework/aptos-framework";
+        const APTOS_GIT_PATH: &str = "https://github.com/aptos-labs/aptos-framework.git";
+        const SUBDIR_PATH: &str = "aptos-framework";
         const DEFAULT_BRANCH: &str = "mainnet";
 
         let move_toml = package_dir.join(SourcePackageLayout::Manifest.path());
@@ -604,7 +604,7 @@ impl CliCommand<&'static str> for TestPackage {
             self.compute_coverage,
             &mut std::io::stdout(),
         )
-        .map_err(|err| CliError::UnexpectedError(format!("Failed to run tests: {:#}", err)))?;
+            .map_err(|err| CliError::UnexpectedError(format!("Failed to run tests: {:#}", err)))?;
 
         // Print coverage summary if --coverage is set
         if self.compute_coverage {
@@ -673,8 +673,8 @@ impl CliCommand<&'static str> for ProvePackage {
                 &[],
             )
         })
-        .await
-        .map_err(|err| CliError::UnexpectedError(err.to_string()))?;
+            .await
+            .map_err(|err| CliError::UnexpectedError(err.to_string()))?;
         match result {
             Ok(_) => Ok("Success"),
             Err(e) => Err(CliError::MoveProverError(format!("{:#}", e))),
@@ -1052,7 +1052,7 @@ impl CliCommand<TransactionSummary> for PublishPackage {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-            .await
+                .await
         } else {
             let package_publication_data: PackagePublicationData = (&self).try_into()?;
             profile_or_submit(package_publication_data.payload, &self.txn_options).await
@@ -1137,12 +1137,12 @@ pub struct CreateObjectAndPublishPackage {
 }
 
 #[async_trait]
-impl CliCommand<TransactionSummary> for CreateObjectAndPublishPackage {
+impl CliCommand<(TransactionSummary, AccountAddress)> for CreateObjectAndPublishPackage {
     fn command_name(&self) -> &'static str {
         "CreateObjectAndPublishPackage"
     }
 
-    async fn execute(mut self) -> CliTypedResult<TransactionSummary> {
+    async fn execute(mut self) -> CliTypedResult<(TransactionSummary, AccountAddress)> {
         let sender_address = self.txn_options.get_public_key_and_address()?.1;
 
         let sequence_number = if self.chunked_publish_option.chunked_publish {
@@ -1158,7 +1158,7 @@ impl CliCommand<TransactionSummary> for CreateObjectAndPublishPackage {
                 None,
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
             let staging_tx_count = (mock_payloads.len() - 1) as u64;
             self.txn_options.sequence_number(sender_address).await? + staging_tx_count + 1
         } else {
@@ -1184,7 +1184,7 @@ impl CliCommand<TransactionSummary> for CreateObjectAndPublishPackage {
                 None,
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
 
             let size = &payloads
                 .iter()
@@ -1199,14 +1199,14 @@ impl CliCommand<TransactionSummary> for CreateObjectAndPublishPackage {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-            .await
+                .await
         } else {
             let payload = create_package_publication_data(
                 package,
                 PublishType::ObjectDeploy,
                 Some(object_address),
             )?
-            .payload;
+                .payload;
             let size = bcs::serialized_size(&payload)?;
             println!("package size {} bytes", size);
 
@@ -1229,8 +1229,10 @@ impl CliCommand<TransactionSummary> for CreateObjectAndPublishPackage {
                 "Code was successfully deployed to object address {}",
                 object_address
             );
+            Ok((result?, object_address))
+        } else {
+            Err(result.unwrap_err())
         }
-        result
     }
 }
 
@@ -1296,7 +1298,7 @@ impl CliCommand<TransactionSummary> for UpgradeObjectPackage {
                 Some(self.object_address),
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
 
             let size = &payloads
                 .iter()
@@ -1310,14 +1312,14 @@ impl CliCommand<TransactionSummary> for UpgradeObjectPackage {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-            .await
+                .await
         } else {
             let payload = create_package_publication_data(
                 built_package,
                 PublishType::ObjectUpgrade,
                 Some(self.object_address),
             )?
-            .payload;
+                .payload;
 
             let size = bcs::serialized_size(&payload)?;
             println!("package size {} bytes", size);
@@ -1387,7 +1389,7 @@ impl CliCommand<TransactionSummary> for DeployObjectCode {
                 None,
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
             let staging_tx_count = (mock_payloads.len() - 1) as u64;
             self.txn_options.sequence_number(sender_address).await? + staging_tx_count + 1
         } else {
@@ -1413,7 +1415,7 @@ impl CliCommand<TransactionSummary> for DeployObjectCode {
                 None,
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
 
             let size = &payloads
                 .iter()
@@ -1428,14 +1430,14 @@ impl CliCommand<TransactionSummary> for DeployObjectCode {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-            .await
+                .await
         } else {
             let payload = create_package_publication_data(
                 package,
                 PublishType::ObjectDeploy,
                 Some(object_address),
             )?
-            .payload;
+                .payload;
 
             let size = bcs::serialized_size(&payload)?;
             println!("package size {} bytes", size);
@@ -1531,7 +1533,7 @@ impl CliCommand<TransactionSummary> for UpgradeCodeObject {
                 Some(self.object_address),
                 self.chunked_publish_option.large_packages_module_address,
             )?
-            .payloads;
+                .payloads;
 
             let size = &payloads
                 .iter()
@@ -1545,14 +1547,14 @@ impl CliCommand<TransactionSummary> for UpgradeCodeObject {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-            .await
+                .await
         } else {
             let payload = create_package_publication_data(
                 package,
                 PublishType::ObjectUpgrade,
                 Some(self.object_address),
             )?
-            .payload;
+                .payload;
 
             let size = bcs::serialized_size(&payload)?;
             println!("package size {} bytes", size);
@@ -1687,10 +1689,10 @@ async fn is_staging_area_empty(
             None => Ok(true),     // TODO: determine which case this is
         },
         Err(RestError::Api(aptos_error_response))
-            if aptos_error_response.error.error_code == AptosErrorCode::ResourceNotFound =>
-        {
-            Ok(true) // The resource doesn't exist
-        },
+        if aptos_error_response.error.error_code == AptosErrorCode::ResourceNotFound =>
+            {
+                Ok(true) // The resource doesn't exist
+            },
         Err(rest_err) => Err(CliError::from(rest_err)),
     }
 }
@@ -1768,7 +1770,7 @@ impl CliCommand<TransactionSummary> for CreateResourceAccountAndPublishPackage {
             txn_options.profile_options.profile_name(),
             ConfigSearchMode::CurrentDirAndParents,
         )?
-        .map(|p| p.account)
+            .map(|p| p.account)
         {
             account
         } else {
@@ -2055,12 +2057,12 @@ impl CliCommand<&'static str> for CleanPackage {
         let move_dir = PathBuf::from(MOVE_HOME.as_str());
         if move_dir.exists()
             && prompt_yes_with_override(
-                &format!(
-                    "Do you also want to delete the local package download cache at `{}`?",
-                    move_dir.display()
-                ),
-                self.prompt_options,
-            )
+            &format!(
+                "Do you also want to delete the local package download cache at `{}`?",
+                move_dir.display()
+            ),
+            self.prompt_options,
+        )
             .is_ok()
         {
             std::fs::remove_dir_all(move_dir.as_path())
@@ -2090,7 +2092,7 @@ impl CliCommand<TransactionSummary> for RunFunction {
             TransactionPayload::EntryFunction(self.entry_function_args.try_into()?),
             &self.txn_options,
         )
-        .await
+            .await
     }
 }
 
@@ -2142,7 +2144,7 @@ impl CliCommand<TransactionSummary> for RunScript {
             self.script_function_args.create_script_payload(bytecode)?,
             &self.txn_options,
         )
-        .await
+            .await
     }
 }
 
@@ -2179,6 +2181,11 @@ pub struct Replay {
     /// If present, skip the comparison against the expected transaction output.
     #[clap(long)]
     pub(crate) skip_comparison: bool,
+
+    /// Key to use for ratelimiting purposes with the node API. This value will be used
+    /// as `Authorization: Bearer <key>`
+    #[clap(long)]
+    pub(crate) node_api_key: Option<String>,
 }
 
 impl FromStr for ReplayNetworkSelection {
@@ -2216,10 +2223,20 @@ impl CliCommand<TransactionSummary> for Replay {
             RestEndpoint(url) => url,
         };
 
-        let debugger = AptosDebugger::rest_client(Client::new(
+        // Build the client
+        let client = Client::builder(AptosBaseUrl::Custom(
             Url::parse(rest_endpoint)
                 .map_err(|_err| CliError::UnableToParse("url", rest_endpoint.to_string()))?,
-        ))?;
+        ));
+
+        // add the node API key if it is provided
+        let client = if let Some(api_key) = self.node_api_key {
+            client.api_key(&api_key).unwrap().build()
+        } else {
+            client.build()
+        };
+
+        let debugger = AptosDebugger::rest_client(client)?;
 
         // Fetch the transaction to replay.
         let (txn, txn_info) = debugger
@@ -2348,48 +2365,48 @@ impl FunctionArgType {
                 &load_account_arg(arg)
                     .map_err(|err| CliError::UnableToParse("address", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::Bool => bcs::to_bytes(
                 &bool::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("bool", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::Hex => bcs::to_bytes(
                 HexEncodedBytes::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("hex", err.to_string()))?
                     .inner(),
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::String => bcs::to_bytes(arg).map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U8 => bcs::to_bytes(
                 &u8::from_str(arg).map_err(|err| CliError::UnableToParse("u8", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U16 => bcs::to_bytes(
                 &u16::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("u16", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U32 => bcs::to_bytes(
                 &u32::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("u32", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U64 => bcs::to_bytes(
                 &u64::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("u64", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U128 => bcs::to_bytes(
                 &u128::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("u128", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::U256 => bcs::to_bytes(
                 &U256::from_str(arg)
                     .map_err(|err| CliError::UnableToParse("u256", err.to_string()))?,
             )
-            .map_err(|err| CliError::BCS("arg", err)),
+                .map_err(|err| CliError::BCS("arg", err)),
             FunctionArgType::Raw => Ok(HexEncodedBytes::from_str(arg)
                 .map_err(|err| CliError::UnableToParse("raw", err.to_string()))?
                 .inner()
@@ -2609,11 +2626,11 @@ impl ArgWithType {
             6 => serde_json::to_value(bcs::from_bytes::<Vec<Vec<Vec<Vec<Vec<Vec<T>>>>>>>(
                 &self.arg,
             )?)
-            .map_err(|err| CliError::UnexpectedError(err.to_string())),
+                .map_err(|err| CliError::UnexpectedError(err.to_string())),
             7 => serde_json::to_value(bcs::from_bytes::<Vec<Vec<Vec<Vec<Vec<Vec<Vec<T>>>>>>>>(
                 &self.arg,
             )?)
-            .map_err(|err| CliError::UnexpectedError(err.to_string())),
+                .map_err(|err| CliError::UnexpectedError(err.to_string())),
             depth => Err(CliError::UnexpectedError(format!(
                 "Vector of depth {depth} is overly nested"
             ))),
@@ -2635,9 +2652,9 @@ impl ArgWithType {
             FunctionArgType::Raw => serde_json::to_value(&self.arg)
                 .map_err(|err| CliError::UnexpectedError(err.to_string())),
         }
-        .map_err(|err| {
-            CliError::UnexpectedError(format!("Failed to parse argument to JSON {}", err))
-        })
+            .map_err(|err| {
+                CliError::UnexpectedError(format!("Failed to parse argument to JSON {}", err))
+            })
     }
 }
 
