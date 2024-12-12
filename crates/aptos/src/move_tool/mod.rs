@@ -146,13 +146,13 @@ impl MoveTool {
             MoveTool::Coverage(tool) => tool.execute().await,
             MoveTool::CreateObjectAndPublishPackage(tool) => {
                 tool.execute_serialized_success().await
-            },
+            }
             MoveTool::UpgradeObjectPackage(tool) => tool.execute_serialized_success().await,
             MoveTool::DeployObject(tool) => tool.execute_serialized_success().await,
             MoveTool::UpgradeObject(tool) => tool.execute_serialized_success().await,
             MoveTool::CreateResourceAccountAndPublishPackage(tool) => {
                 tool.execute_serialized_success().await
-            },
+            }
             MoveTool::Disassemble(tool) => tool.execute_serialized().await,
             MoveTool::Decompile(tool) => tool.execute_serialized().await,
             MoveTool::Document(tool) => tool.execute_serialized().await,
@@ -353,7 +353,7 @@ impl CliCommand<()> for InitPackage {
                     addresses,
                     self.prompt_options,
                 )
-            },
+            }
             Some(Template::HelloBlockchain) => {
                 // Setup the Hello blockchain template
                 // Note: We have to override the addresses
@@ -375,7 +375,7 @@ impl CliCommand<()> for InitPackage {
                     "hello_blockchain.move",
                     HELLO_BLOCKCHAIN_EXAMPLE.as_bytes(),
                 )
-            },
+            }
         }
     }
 }
@@ -870,7 +870,7 @@ pub fn experiments_from_opt_level(optlevel: &Option<OptimizationLevel>) -> Vec<S
     match optlevel {
         None | Some(OptimizationLevel::Default) => {
             vec![format!("{}=on", Experiment::OPTIMIZE.to_string())]
-        },
+        }
         Some(OptimizationLevel::None) => vec![format!("{}=off", Experiment::OPTIMIZE.to_string())],
         Some(OptimizationLevel::Extra) => vec![
             format!("{}=on", Experiment::OPTIMIZE_EXTRA.to_string()),
@@ -984,20 +984,20 @@ fn create_package_publication_data(
                 metadata_serialized.clone(),
                 compiled_units.clone(),
             )
-        },
+        }
         PublishType::ObjectDeploy => {
             aptos_cached_packages::aptos_stdlib::object_code_deployment_publish(
                 metadata_serialized.clone(),
                 compiled_units.clone(),
             )
-        },
+        }
         PublishType::ObjectUpgrade => {
             aptos_cached_packages::aptos_stdlib::object_code_deployment_upgrade(
                 metadata_serialized.clone(),
                 compiled_units.clone(),
                 object_address.expect("Object address must be provided for upgrading object code."),
             )
-        },
+        }
     };
 
     Ok(PackagePublicationData {
@@ -1036,12 +1036,12 @@ fn create_chunked_publish_payloads(
 }
 
 #[async_trait]
-impl CliCommand<TransactionSummary> for PublishPackage {
+impl CliCommand<Vec<TransactionSummary>> for PublishPackage {
     fn command_name(&self) -> &'static str {
         "PublishPackage"
     }
 
-    async fn execute(self) -> CliTypedResult<TransactionSummary> {
+    async fn execute(self) -> CliTypedResult<Vec<TransactionSummary>> {
         if self.chunked_publish_option.chunked_publish {
             let chunked_package_payloads: ChunkedPublishPayloads = (&self).async_try_into().await?;
 
@@ -1055,7 +1055,7 @@ impl CliCommand<TransactionSummary> for PublishPackage {
                 .await
         } else {
             let package_publication_data: PackagePublicationData = (&self).try_into()?;
-            profile_or_submit(package_publication_data.payload, &self.txn_options).await
+            profile_or_submit(package_publication_data.payload, &self.txn_options).await.and_then(|tx| Ok(vec![tx]))
         }
     }
 }
@@ -1137,12 +1137,12 @@ pub struct CreateObjectAndPublishPackage {
 }
 
 #[async_trait]
-impl CliCommand<(TransactionSummary, AccountAddress)> for CreateObjectAndPublishPackage {
+impl CliCommand<(Vec<TransactionSummary>, AccountAddress)> for CreateObjectAndPublishPackage {
     fn command_name(&self) -> &'static str {
         "CreateObjectAndPublishPackage"
     }
 
-    async fn execute(mut self) -> CliTypedResult<(TransactionSummary, AccountAddress)> {
+    async fn execute(mut self) -> CliTypedResult<(Vec<TransactionSummary>, AccountAddress)> {
         let sender_address = self.txn_options.get_public_key_and_address()?.1;
 
         let sequence_number = if self.chunked_publish_option.chunked_publish {
@@ -1222,6 +1222,7 @@ impl CliCommand<(TransactionSummary, AccountAddress)> for CreateObjectAndPublish
                 .submit_transaction(payload)
                 .await
                 .map(TransactionSummary::from)
+                .and_then(|tx| Ok(vec![tx]))
         };
 
         if result.is_ok() {
@@ -1312,7 +1313,7 @@ impl CliCommand<TransactionSummary> for UpgradeObjectPackage {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-                .await
+                .await.and_then(|v| Ok(v.last().cloned().unwrap()))
         } else {
             let payload = create_package_publication_data(
                 built_package,
@@ -1430,7 +1431,7 @@ impl CliCommand<TransactionSummary> for DeployObjectCode {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-                .await
+                .await.and_then(|v| Ok(v.last().cloned().unwrap()))
         } else {
             let payload = create_package_publication_data(
                 package,
@@ -1547,7 +1548,7 @@ impl CliCommand<TransactionSummary> for UpgradeCodeObject {
                 &self.txn_options,
                 self.chunked_publish_option.large_packages_module_address,
             )
-                .await
+                .await.and_then(|v| Ok(v.last().cloned().unwrap()))
         } else {
             let payload = create_package_publication_data(
                 package,
@@ -1597,10 +1598,8 @@ async fn submit_chunked_publish_transactions(
     payloads: Vec<TransactionPayload>,
     txn_options: &TransactionOptions,
     large_packages_module_address: AccountAddress,
-) -> CliTypedResult<TransactionSummary> {
-    let mut publishing_result = Err(CliError::UnexpectedError(
-        "No payload provided for batch transaction run".to_string(),
-    ));
+) -> CliTypedResult<Vec<TransactionSummary>> {
+    let mut publishing_result = vec![];
     let payloads_length = payloads.len() as u64;
     let mut tx_hashes = vec![];
 
@@ -1637,8 +1636,8 @@ async fn submit_chunked_publish_transactions(
                 });
                 println!("Transaction executed: {} ({})\n", status, &tx_hash);
                 tx_hashes.push(tx_hash);
-                publishing_result = Ok(tx_summary);
-            },
+                publishing_result.push(tx_summary);
+            }
 
             Err(e) => {
                 println!("{}", "Caution: An error occurred while submitting chunked publish transactions. \
@@ -1646,7 +1645,7 @@ async fn submit_chunked_publish_transactions(
                 \nThis could cause further errors if you attempt to run the chunked publish command again. \
                 \nTo avoid this, use the `aptos move clear-staging-area` command to clean up the `StagingArea` resource under your account before retrying.".bold());
                 return Err(e);
-            },
+            }
         }
     }
 
@@ -1663,7 +1662,13 @@ async fn submit_chunked_publish_transactions(
             .join(",\n    ")
     );
     println!("\n{}\n", tx_hash_formatted);
-    publishing_result
+    if publishing_result.is_empty() {
+        Err(CliError::UnexpectedError(
+            "No payload provided for batch transaction run".to_string(),
+        ))
+    } else {
+        Ok(publishing_result)
+    }
 }
 
 async fn is_staging_area_empty(
@@ -1692,7 +1697,7 @@ async fn is_staging_area_empty(
         if aptos_error_response.error.error_code == AptosErrorCode::ResourceNotFound =>
             {
                 Ok(true) // The resource doesn't exist
-            },
+            }
         Err(rest_err) => Err(CliError::from(rest_err)),
     }
 }
@@ -1704,7 +1709,8 @@ pub struct ClearStagingArea {
     pub(crate) txn_options: TransactionOptions,
 
     /// Address of the `large_packages` move module for chunked publishing
-    #[clap(long, default_value = LARGE_PACKAGES_MODULE_ADDRESS, value_parser = crate::common::types::load_account_arg)]
+    #[clap(long, default_value = LARGE_PACKAGES_MODULE_ADDRESS, value_parser = crate::common::types::load_account_arg
+    )]
     pub(crate) large_packages_module_address: AccountAddress,
 }
 
@@ -2024,7 +2030,7 @@ impl CliCommand<&'static str> for ListPackage {
                     println!("  source_digest: {}", data.source_digest());
                     println!("  modules: {}", data.module_names().into_iter().join(", "));
                 }
-            },
+            }
         }
         Ok("list succeeded")
     }
@@ -2250,7 +2256,7 @@ impl CliCommand<TransactionSummary> for Replay {
                     "Unsupported transaction type. Only user transactions are supported."
                         .to_string(),
                 ))
-            },
+            }
         };
 
         let hash = txn.committed_hash();
@@ -2461,10 +2467,10 @@ impl FunctionArgType {
                     _vector_depth: common_sub_arg_depth.unwrap_or(0) + 1,
                     arg: bcs,
                 })
-            },
+            }
             serde_json::Value::Null => {
                 Err(CliError::CommandArgumentError("Null argument".to_string()))
-            },
+            }
             serde_json::Value::Object(_) => Err(CliError::CommandArgumentError(
                 "JSON object argument".to_string(),
             )),
@@ -2571,15 +2577,15 @@ impl ArgWithType {
                 FunctionArgType::U64 => {
                     serde_json::to_value(bcs::from_bytes::<u64>(&self.arg)?.to_string())
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::U128 => {
                     serde_json::to_value(bcs::from_bytes::<u128>(&self.arg)?.to_string())
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::U256 => {
                     serde_json::to_value(bcs::from_bytes::<U256>(&self.arg)?.to_string())
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::Raw => serde_json::to_value(&self.arg)
                     .map_err(|err| CliError::UnexpectedError(err.to_string())),
                 _ => serde_json::to_value(bcs::from_bytes::<T>(&self.arg)?)
@@ -2592,21 +2598,21 @@ impl ArgWithType {
                         u64_vector.iter().map(ToString::to_string).collect();
                     serde_json::to_value(string_vector)
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::U128 => {
                     let u128_vector: Vec<u128> = bcs::from_bytes::<Vec<u128>>(&self.arg)?;
                     let string_vector: Vec<String> =
                         u128_vector.iter().map(ToString::to_string).collect();
                     serde_json::to_value(string_vector)
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::U256 => {
                     let u256_vector: Vec<U256> = bcs::from_bytes::<Vec<U256>>(&self.arg)?;
                     let string_vector: Vec<String> =
                         u256_vector.iter().map(ToString::to_string).collect();
                     serde_json::to_value(string_vector)
                         .map_err(|err| CliError::UnexpectedError(err.to_string()))
-                },
+                }
                 FunctionArgType::Raw => serde_json::to_value(&self.arg)
                     .map_err(|err| CliError::UnexpectedError(err.to_string())),
                 _ => serde_json::to_value(bcs::from_bytes::<Vec<T>>(&self.arg)?)
